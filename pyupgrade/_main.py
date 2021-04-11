@@ -35,8 +35,8 @@ from pyupgrade._string_helpers import is_codec
 from pyupgrade._token_helpers import CLOSING
 from pyupgrade._token_helpers import KEYWORDS
 from pyupgrade._token_helpers import OPENING
+from pyupgrade._token_helpers import parse_call_args
 from pyupgrade._token_helpers import remove_brace
-from pyupgrade._token_helpers import victims
 
 DotFormatPart = Tuple[str, Optional[str], Optional[str], Optional[str]]
 
@@ -510,24 +510,12 @@ def _fix_tokens(contents_text: str, min_version: Version) -> str:
     return tokens_to_src(tokens).lstrip()
 
 
-def _simple_arg(arg: ast.expr) -> bool:
-    return (
-        isinstance(arg, ast.Name) or
-        (isinstance(arg, ast.Attribute) and _simple_arg(arg.value)) or
-        (
-            isinstance(arg, ast.Call) and
-            _simple_arg(arg.func) and
-            not arg.args and not arg.keywords
-        )
-    )
-
-
-def _format_params(call: ast.Call) -> Dict[str, str]:
-    params = {str(i): _unparse(arg) for i, arg in enumerate(call.args)}
+def _format_params(call: ast.Call) -> Set[str]:
+    params = {str(i) for i, arg in enumerate(call.args)}
     for kwd in call.keywords:
         # kwd.arg can't be None here because we exclude starargs
         assert kwd.arg is not None
-        params[kwd.arg] = _unparse(kwd.value)
+        params.add(kwd.arg)
     return params
 
 
@@ -566,8 +554,6 @@ class FindPy36Plus(ast.NodeVisitor):
                 isinstance(node.func, ast.Attribute) and
                 isinstance(node.func.value, ast.Str) and
                 node.func.attr == 'format' and
-                all(_simple_arg(arg) for arg in node.args) and
-                all(_simple_arg(k.value) for k in node.keywords) and
                 not has_starargs(node)
         ):
             return None
@@ -644,7 +630,11 @@ class FindPy36Plus(ast.NodeVisitor):
                         'TypedDict',
                     ) and
                     len(node.value.args) == 1 and
-                    len(node.value.keywords) > 0
+                    len(node.value.keywords) > 0 and
+                    not any(
+                        keyword.arg == 'total'
+                        for keyword in node.value.keywords
+                    )
             ):
                 self.kw_typed_dicts[ast_to_offset(node)] = node.value
             elif (
@@ -654,7 +644,17 @@ class FindPy36Plus(ast.NodeVisitor):
                         'TypedDict',
                     ) and
                     len(node.value.args) == 2 and
-                    not node.value.keywords and
+                    (
+                        not node.value.keywords or
+                        (
+                            len(node.value.keywords) == 1 and
+                            node.value.keywords[0].arg == 'total' and
+                            isinstance(
+                                node.value.keywords[0].value,
+                                (ast.Constant, ast.NameConstant),
+                            )
+                        )
+                    ) and
                     isinstance(node.value.args[1], ast.Dict) and
                     node.value.args[1].keys and
                     all(
@@ -674,8 +674,6 @@ def _unparse(node: ast.expr) -> str:
         return node.id
     elif isinstance(node, ast.Attribute):
         return ''.join((_unparse(node.value), '.', node.attr))
-    elif isinstance(node, ast.Call):
-        return '{}()'.format(_unparse(node.func))
     elif isinstance(node, ast.Subscript):
         if sys.version_info >= (3, 9):  # pragma: no cover (py39+)
             node_slice: ast.expr = node.slice
@@ -690,7 +688,7 @@ def _unparse(node: ast.expr) -> str:
                 slice_s = ', '.join(_unparse(elt) for elt in node_slice.elts)
         else:
             slice_s = _unparse(node_slice)
-        return '{}[{}]'.format(_unparse(node.value), slice_s)
+        return f'{_unparse(node.value)}[{slice_s}]'
     elif isinstance(node, ast.Str):
         return repr(node.s)
     elif isinstance(node, ast.Ellipsis):
@@ -703,8 +701,28 @@ def _unparse(node: ast.expr) -> str:
         raise NotImplementedError(ast.dump(node))
 
 
-def _to_fstring(src: str, call: ast.Call) -> str:
-    params = _format_params(call)
+def _skip_unimportant_ws(tokens: List[Token], i: int) -> int:
+    while tokens[i].name == 'UNIMPORTANT_WS':
+        i += 1
+    return i
+
+
+def _to_fstring(
+    src: str, tokens: List[Token], args: List[Tuple[int, int]],
+) -> str:
+    params = {}
+    i = 0
+    for start, end in args:
+        start = _skip_unimportant_ws(tokens, start)
+        if tokens[start].name == 'NAME':
+            after = _skip_unimportant_ws(tokens, start + 1)
+            if tokens[after].src == '=':  # keyword argument
+                params[tokens[start].src] = tokens_to_src(
+                    tokens[after + 1:end],
+                ).strip()
+                continue
+        params[str(i)] = tokens_to_src(tokens[start:end]).strip()
+        i += 1
 
     parts = []
     i = 0
@@ -718,12 +736,12 @@ def _to_fstring(src: str, call: ast.Call) -> str:
     return unparse_parsed_string(parts)
 
 
-def _replace_typed_class(
+def _typed_class_replacement(
         tokens: List[Token],
         i: int,
         call: ast.Call,
         types: Dict[str, ast.expr],
-) -> None:
+) -> Tuple[int, str]:
     if i > 0 and tokens[i - 1].name in {'INDENT', UNIMPORTANT_WS}:
         indent = f'{tokens[i - 1].src}{" " * 4}'
     else:
@@ -736,8 +754,7 @@ def _replace_typed_class(
         end += 1
 
     attrs = '\n'.join(f'{indent}{k}: {_unparse(v)}' for k, v in types.items())
-    src = f'class {tokens[i].src}({_unparse(call.func)}):\n{attrs}'
-    tokens[i:end] = [Token('CODE', src)]
+    return end, attrs
 
 
 def _fix_py36_plus(contents_text: str) -> str:
@@ -763,8 +780,6 @@ def _fix_py36_plus(contents_text: str) -> str:
         return contents_text
     for i, token in reversed_enumerate(tokens):
         if token.offset in visitor.fstrings:
-            node = visitor.fstrings[token.offset]
-
             # TODO: handle \N escape sequences
             if r'\N' in token.src:
                 continue
@@ -773,29 +788,37 @@ def _fix_py36_plus(contents_text: str) -> str:
             if tokens_to_src(tokens[i + 1:paren + 1]) != '.format(':
                 continue
 
-            # we don't actually care about arg position, so we pass `node`
-            fmt_victims = victims(tokens, paren, node, gen=False)
-            end = fmt_victims.ends[-1]
+            args, end = parse_call_args(tokens, paren)
             # if it spans more than one line, bail
-            if tokens[end].line != token.line:
+            if tokens[end - 1].line != token.line:
                 continue
 
-            tokens[i] = token._replace(src=_to_fstring(token.src, node))
-            del tokens[i + 1:end + 1]
+            args_src = tokens_to_src(tokens[paren:end])
+            if '\\' in args_src or '"' in args_src or "'" in args_src:
+                continue
+
+            tokens[i] = token._replace(
+                src=_to_fstring(token.src, tokens, args),
+            )
+            del tokens[i + 1:end]
         elif token.offset in visitor.named_tuples and token.name == 'NAME':
             call = visitor.named_tuples[token.offset]
             types: Dict[str, ast.expr] = {
                 tup.elts[0].s: tup.elts[1]  # type: ignore  # (checked above)
                 for tup in call.args[1].elts  # type: ignore  # (checked above)
             }
-            _replace_typed_class(tokens, i, call, types)
+            end, attrs = _typed_class_replacement(tokens, i, call, types)
+            src = f'class {tokens[i].src}({_unparse(call.func)}):\n{attrs}'
+            tokens[i:end] = [Token('CODE', src)]
         elif token.offset in visitor.kw_typed_dicts and token.name == 'NAME':
             call = visitor.kw_typed_dicts[token.offset]
             types = {
                 arg.arg: arg.value  # type: ignore  # (checked above)
                 for arg in call.keywords
             }
-            _replace_typed_class(tokens, i, call, types)
+            end, attrs = _typed_class_replacement(tokens, i, call, types)
+            src = f'class {tokens[i].src}({_unparse(call.func)}):\n{attrs}'
+            tokens[i:end] = [Token('CODE', src)]
         elif token.offset in visitor.dict_typed_dicts and token.name == 'NAME':
             call = visitor.dict_typed_dicts[token.offset]
             types = {
@@ -805,7 +828,20 @@ def _fix_py36_plus(contents_text: str) -> str:
                     call.args[1].values,  # type: ignore  # (checked above)
                 )
             }
-            _replace_typed_class(tokens, i, call, types)
+            if call.keywords:
+                total = call.keywords[0].value.value  # type: ignore # (checked above)  # noqa: E501
+                end, attrs = _typed_class_replacement(tokens, i, call, types)
+                src = (
+                    f'class {tokens[i].src}('
+                    f'{_unparse(call.func)}, total={total}'
+                    f'):\n'
+                    f'{attrs}'
+                )
+                tokens[i:end] = [Token('CODE', src)]
+            else:
+                end, attrs = _typed_class_replacement(tokens, i, call, types)
+                src = f'class {tokens[i].src}({_unparse(call.func)}):\n{attrs}'
+                tokens[i:end] = [Token('CODE', src)]
 
     return tokens_to_src(tokens)
 
