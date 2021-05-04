@@ -20,7 +20,7 @@ Sample `.pre-commit-config.yaml`:
 
 ```yaml
 -   repo: https://github.com/asottile/pyupgrade
-    rev: v2.13.0
+    rev: v2.14.0
     hooks:
     -   id: pyupgrade
 ```
@@ -461,6 +461,18 @@ Availability:
 _note_: `pyupgrade` is intentionally timid and will not create an f-string
 if it would make the expression longer or if the substitution parameters are
 anything but simple names or dotted names (as this can decrease readability).
+
+
+### `subprocess.run`: replace `universal_newlines` with `text`
+
+Availability:
+- `--py37-plus` is passed on the commandline.
+
+```diff
+-output = subprocess.run(['foo'], universal_newlines=True)
++output = subprocess.run(['foo'], text=True)
+```
+
 
 ### remove parentheses from `@functools.lru_cache()`
 
