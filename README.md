@@ -20,7 +20,7 @@ Sample `.pre-commit-config.yaml`:
 
 ```yaml
 -   repo: https://github.com/asottile/pyupgrade
-    rev: v2.14.0
+    rev: v2.19.4
     hooks:
     -   id: pyupgrade
 ```
@@ -44,6 +44,16 @@ set([x for x in y])  # {x for x in y}
 ```python
 dict((a, b) for a, b in y)    # {a: b for a, b in y}
 dict([(a, b) for a, b in y])  # {a: b for a, b in y}
+```
+
+
+### Generator expressions for some built-in functions (pep 289)
+
+```python
+min([i for i in range(3)])  # min(i for i in range(3))
+max([i for i in range(3)])  # max(i for i in range(3))
+sum([i for i in range(3)])  # sum(i for i in range(3))
+''.join([str(i) for i in range(3)])  # ''.join(str(i) for i in range(3))
 ```
 
 ### Python2.7+ Format Specifiers
@@ -102,7 +112,7 @@ of those comparisons is implementation specific (due to common object caching).
 ```python
 x is 5      # x == 5
 x is not 5  # x != 5
-x is 'foo'  # x == foo
+x is 'foo'  # x == 'foo'
 ```
 
 ### `ur` string literals
@@ -418,6 +428,29 @@ Availability:
      ...
 ```
 
+
+### Unpacking list comprehensions
+
+Availability:
+- `--py3-plus` is passed on the commandline.
+
+```diff
+-foo, bar, baz = [fn(x) for x in items]
++foo, bar, baz = (fn(x) for x in items)
+```
+
+
+### Unpacking argument list comprehensions
+
+Availability:
+- `--py3-plus` is passed on the commandline.
+
+```diff
+-foo(*[i for i in bar])
++foo(*(i for i in bar))
+```
+
+
 ### `typing.NamedTuple` / `typing.TypedDict` py36+ syntax
 
 Availability:
@@ -474,6 +507,17 @@ Availability:
 ```
 
 
+### `subprocess.run`: replace `stdout=subprocess.PIPE, stderr=subprocess.PIPE` with `capture_output=True`
+
+Availability:
+- `--py37-plus` is passed on the commandline.
+
+```diff
+-output = subprocess.run(['foo'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
++output = subprocess.run(['foo'], capture_output=True)
+```
+
+
 ### remove parentheses from `@functools.lru_cache()`
 
 Availability:
@@ -501,6 +545,19 @@ Availability:
 +@functools.cache
  def expensive():
      ...
+```
+
+
+### merge dicts using union operator (pep 584)
+
+Availability:
+- `--py39-plus` is passed on the commandline.
+
+```diff
+ x = {"a": 1}
+ y = {"b": 2}
+-z = {**x, **y}
++z = x | y
 ```
 
 

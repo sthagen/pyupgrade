@@ -323,6 +323,10 @@ def _fix_format_literal(tokens: List[Token], end: int) -> None:
 
 
 def _fix_encode_to_binary(tokens: List[Token], i: int) -> None:
+    parts = rfind_string_parts(tokens, i - 2)
+    if not parts:
+        return
+
     # .encode()
     if (
             i + 2 < len(tokens) and
@@ -350,10 +354,6 @@ def _fix_encode_to_binary(tokens: List[Token], i: int) -> None:
         else:
             return
     else:
-        return
-
-    parts = rfind_string_parts(tokens, i - 2)
-    if not parts:
         return
 
     for part in parts:
@@ -391,6 +391,7 @@ def _build_import_removals() -> Dict[Version, Dict[str, Tuple[str, ...]]]:
         ((3, 8), ()),
         ((3, 9), ()),
         ((3, 10), ()),
+        ((3, 11), ()),
     )
 
     prev: Tuple[str, ...] = ()
@@ -804,7 +805,7 @@ def _fix_py36_plus(contents_text: str) -> str:
         elif token.offset in visitor.named_tuples and token.name == 'NAME':
             call = visitor.named_tuples[token.offset]
             types: Dict[str, ast.expr] = {
-                tup.elts[0].s: tup.elts[1]  # type: ignore  # (checked above)
+                tup.elts[0].s: tup.elts[1]
                 for tup in call.args[1].elts  # type: ignore  # (checked above)
             }
             end, attrs = _typed_class_replacement(tokens, i, call, types)
@@ -822,7 +823,7 @@ def _fix_py36_plus(contents_text: str) -> str:
         elif token.offset in visitor.dict_typed_dicts and token.name == 'NAME':
             call = visitor.dict_typed_dicts[token.offset]
             types = {
-                k.s: v  # type: ignore  # (checked above)
+                k.s: v
                 for k, v in zip(
                     call.args[1].keys,  # type: ignore  # (checked above)
                     call.args[1].values,  # type: ignore  # (checked above)
