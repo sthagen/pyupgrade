@@ -20,7 +20,7 @@ Sample `.pre-commit-config.yaml`:
 
 ```yaml
 -   repo: https://github.com/asottile/pyupgrade
-    rev: v2.19.4
+    rev: v2.20.0
     hooks:
     -   id: pyupgrade
 ```
@@ -448,6 +448,19 @@ Availability:
 ```diff
 -foo(*[i for i in bar])
 +foo(*(i for i in bar))
+```
+
+
+### Rewrite `xml.etree.cElementTree` to `xml.etree.ElementTree`
+
+Availability:
+- `--py3-plus` is passed on the commandline.
+
+```diff
+-import xml.etree.cElementTree as ET
++import xml.etree.ElementTree as ET
+-from xml.etree.cElementTree import XML
++from xml.etree.ElementTree import XML
 ```
 
 
