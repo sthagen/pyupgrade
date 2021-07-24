@@ -20,7 +20,7 @@ Sample `.pre-commit-config.yaml`:
 
 ```yaml
 -   repo: https://github.com/asottile/pyupgrade
-    rev: v2.21.2
+    rev: v2.22.0
     hooks:
     -   id: pyupgrade
 ```
@@ -308,6 +308,8 @@ six.exec_(c, g, l)        # exec(c, g, l)
 six.advance_iterator(it)  # next(it)
 six.next(it)              # next(it)
 six.callable(x)           # callable(x)
+six.moves.range(x)        # range(x)
+six.moves.xrange(x)       # range(x)
 
 from six import text_type
 text_type                 # str
