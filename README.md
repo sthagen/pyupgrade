@@ -20,7 +20,7 @@ Sample `.pre-commit-config.yaml`:
 
 ```yaml
 -   repo: https://github.com/asottile/pyupgrade
-    rev: v2.22.0
+    rev: v2.23.0
     hooks:
     -   id: pyupgrade
 ```
@@ -463,6 +463,23 @@ Availability:
 +import xml.etree.ElementTree as ET
 -from xml.etree.cElementTree import XML
 +from xml.etree.ElementTree import XML
+```
+
+
+### Rewrite `type` of primitive
+
+Availability:
+- `--py3-plus` is passed on the commandline.
+
+```diff
+-type('')
++str
+-type(b'')
++bytes
+-type(0)
++int
+-type(0.)
++float
 ```
 
 
