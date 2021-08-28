@@ -20,7 +20,7 @@ Sample `.pre-commit-config.yaml`:
 
 ```yaml
 -   repo: https://github.com/asottile/pyupgrade
-    rev: v2.24.0
+    rev: v2.25.0
     hooks:
     -   id: pyupgrade
 ```
@@ -595,19 +595,6 @@ Availability:
 +@functools.cache
  def expensive():
      ...
-```
-
-
-### merge dicts using union operator (pep 584)
-
-Availability:
-- `--py39-plus` is passed on the commandline.
-
-```diff
- x = {"a": 1}
- y = {"b": 2}
--z = {**x, **y}
-+z = x | y
 ```
 
 
